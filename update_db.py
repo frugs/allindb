@@ -4,6 +4,7 @@ import itertools
 import multiprocessing
 import functools
 import time
+import requests
 import sc2gamedata
 import pyrebase
 
@@ -55,41 +56,55 @@ def for_each_division(region: str, season: str, division_data: dict):
 
 
 def for_each_member(member_key: str):
-    db = open_db_connection()
-    regions_query_result = db.child("members").child(member_key).child("regions").shallow().get()
+    try:
+        db = open_db_connection()
+        regions_query_result = db.child("members").child(member_key).child("regions").shallow().get()
 
-    if not regions_query_result.pyres:
-        return
+        if not regions_query_result.pyres:
+            return
 
-    seasons = ["current", "previous"]
-    season_games_played = dict(zip(seasons, [0] * len(seasons)))
-    highest_league_per_race = {"Zerg": 0, "Protoss": 0, "Terran": 0, "Random": 0}
+        seasons = ["current", "previous"]
+        season_games_played = dict(zip(seasons, [0] * len(seasons)))
+        highest_league_per_race = {"Zerg": 0, "Protoss": 0, "Terran": 0, "Random": 0}
+        current_highest_league = None
 
-    for region in regions_query_result.val():
-        seasons_query_result = db.child("members").child(member_key).child("regions").child(region).shallow().get()
+        for region in regions_query_result.val():
+            seasons_query_result = db.child("members").child(member_key).child("regions").child(region).shallow().get()
 
-        if seasons_query_result.pyres:
-            for season in seasons_query_result.val():
-                race_stats_query_result = db.child("members").child(member_key).child("regions").child(region).child(season).get()
+            if seasons_query_result.pyres:
+                for season in seasons_query_result.val():
+                    race_stats_query_result = db.child("members").child(member_key).child("regions").child(region).child(season).get()
 
-                if race_stats_query_result.pyres:
-                    race_stats = race_stats_query_result.val()
-                    for race in race_stats.keys():
-                        highest_league_per_race[race] = max(highest_league_per_race[race], race_stats[race]["league_id"])
-                        season_games_played[season] += race_stats[race]["games_played"]
+                    if race_stats_query_result.pyres:
+                        race_stats = race_stats_query_result.val()
+                        for race in race_stats.keys():
+                            race_league = race_stats[race]["league_id"]
+                            highest_league_per_race[race] = max(highest_league_per_race[race], race_league)
+                            season_games_played[season] += race_stats[race]["games_played"]
 
-    highest_ranked_races = [race for race, league in highest_league_per_race.items() if league == max(highest_league_per_race.values())]
+                            if season == "current" and (not current_highest_league or current_highest_league < race_league):
+                                current_highest_league = race_league
 
-    data = {
-        "zerg_player": "Zerg" in highest_ranked_races,
-        "protoss_player": "Protoss" in highest_ranked_races,
-        "terran_player": "Terran" in highest_ranked_races,
-        "random_player": "Random" in highest_ranked_races,
-        "current_season_games_played": season_games_played["current"],
-        "previous_season_games_played": season_games_played["previous"],
-        "last_updated": time.time()
-    }
-    db.child("members").child(member_key).update(data)
+        highest_ranked_races = [
+            race for race, league in highest_league_per_race.items()
+            if league == max(highest_league_per_race.values())]
+
+        data = {
+            "zerg_player": "Zerg" in highest_ranked_races,
+            "protoss_player": "Protoss" in highest_ranked_races,
+            "terran_player": "Terran" in highest_ranked_races,
+            "random_player": "Random" in highest_ranked_races,
+            "current_season_games_played": season_games_played["current"],
+            "previous_season_games_played": season_games_played["previous"],
+            "last_updated": time.time()
+        }
+
+        if current_highest_league is not None:
+            data["current_league"] = current_highest_league
+
+        db.child("members").child(member_key).update(data)
+    except requests.exceptions.HTTPError:
+        for_each_member(member_key)
 
 
 def main():
