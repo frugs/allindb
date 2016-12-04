@@ -24,21 +24,15 @@ def open_db_connection() -> pyrebase.pyrebase.Database:
     return firebase.database()
 
 
-def for_each_division(region: str, season: str, division_data: dict):
-    db = open_db_connection()
-
-    ladder_id = division_data["ladder_id"]
-    ladder_data = sc2gamedata.get_ladder_data(ACCESS_TOKEN, ladder_id, region)
-    teams = ladder_data["team"]
-
-    for team in teams:
-        member = team["member"][0]
-        if "character_link" not in member:
-            continue
-
-        battle_tag = member["character_link"]["battle_tag"]
-        race = next(iter(member["played_race_count"][0]["race"].values()))
-
+def update_matching_discord_member_ladder_stats(
+        db: pyrebase.pyrebase.Database,
+        battle_tag: str,
+        region: str,
+        season: str,
+        race: str,
+        ladder_data: dict,
+        team_data:dict):
+    try:
         db_result = db.child("members").order_by_child("battle_tag").equal_to(battle_tag).get()
 
         if db_result.pyres:
@@ -46,13 +40,34 @@ def for_each_division(region: str, season: str, division_data: dict):
 
             data = {
                 "league_id": ladder_data["league"]["league_key"]["league_id"],
-                "wins": team["wins"],
-                "losses": team["losses"],
-                "ties": team["ties"],
-                "games_played": team["wins"] + team["losses"] + team["ties"],
-                "mmr": team["rating"]
+                "wins": team_data["wins"],
+                "losses": team_data["losses"],
+                "ties": team_data["ties"],
+                "games_played": team_data["wins"] + team_data["losses"] + team_data["ties"],
+                "mmr": team_data["rating"]
             }
             db.child("members").child(discord_id).child("regions").child(region).child(season).child(race).set(data)
+
+    except requests.exceptions.HTTPError:
+        update_matching_discord_member_ladder_stats(db, battle_tag, region, season, race, ladder_data, team_data)
+
+
+def for_each_division(region: str, season: str, division_data: dict):
+        db = open_db_connection()
+
+        ladder_id = division_data["ladder_id"]
+        ladder_data = sc2gamedata.get_ladder_data(ACCESS_TOKEN, ladder_id, region)
+        teams = ladder_data["team"]
+
+        for team in teams:
+            member = team["member"][0]
+            if "character_link" not in member:
+                continue
+
+            battle_tag = member["character_link"]["battle_tag"]
+            race = next(iter(member["played_race_count"][0]["race"].values()))
+
+            update_matching_discord_member_ladder_stats(db, battle_tag, region, season, race, ladder_data, team)
 
 
 def for_each_member(member_key: str):
