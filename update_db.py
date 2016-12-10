@@ -61,7 +61,7 @@ def for_each_division(region: str, season: str, division_data: dict):
 
         for team in teams:
             member = team["member"][0]
-            if "character_link" not in member:
+            if "character_link" not in member or "played_race_count" not in member:
                 continue
 
             battle_tag = member["character_link"]["battle_tag"]
