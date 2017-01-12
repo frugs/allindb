@@ -26,14 +26,14 @@ def open_db_connection() -> pyrebase.pyrebase.Database:
 
 def update_matching_discord_member_ladder_stats(
         db: pyrebase.pyrebase.Database,
-        battle_tag: str,
+        caseless_battle_tag: str,
         region: str,
         season: str,
         race: str,
         ladder_data: dict,
         team_data:dict):
     try:
-        db_result = db.child("members").order_by_child("battle_tag").equal_to(battle_tag).get()
+        db_result = db.child("members").order_by_child("caseless_battle_tag").equal_to(caseless_battle_tag).get()
 
         if db_result.pyres:
             discord_id = next(iter(db_result.val().values()))["discord_id"]
@@ -49,25 +49,29 @@ def update_matching_discord_member_ladder_stats(
             db.child("members").child(discord_id).child("regions").child(region).child(season).child(race).set(data)
 
     except requests.exceptions.HTTPError:
-        update_matching_discord_member_ladder_stats(db, battle_tag, region, season, race, ladder_data, team_data)
+        update_matching_discord_member_ladder_stats(db, caseless_battle_tag, region, season, race, ladder_data, team_data)
 
 
-def for_each_division(region: str, season: str, division_data: dict):
-        db = open_db_connection()
+def for_each_division(region: str, season: str, member_caseless_battle_tags: set, division_data: dict):
+    db = open_db_connection()
 
-        ladder_id = division_data["ladder_id"]
-        ladder_data = sc2gamedata.get_ladder_data(ACCESS_TOKEN, ladder_id, region)
-        teams = ladder_data["team"]
+    ladder_id = division_data["ladder_id"]
+    ladder_data = sc2gamedata.get_ladder_data(ACCESS_TOKEN, ladder_id, region)
+    teams = ladder_data["team"]
 
-        for team in teams:
-            member = team["member"][0]
-            if "character_link" not in member or "played_race_count" not in member:
-                continue
+    for team in teams:
+        member = team["member"][0]
+        if "character_link" not in member or "played_race_count" not in member:
+            continue
 
-            battle_tag = member["character_link"]["battle_tag"]
-            race = next(iter(member["played_race_count"][0]["race"].values()))
+        caseless_battle_tag = member["character_link"]["battle_tag"].casefold()
+        race = next(iter(member["played_race_count"][0]["race"].values()))
 
-            update_matching_discord_member_ladder_stats(db, battle_tag, region, season, race, ladder_data, team)
+        if caseless_battle_tag in member_caseless_battle_tags:
+            update_matching_discord_member_ladder_stats(
+                db, caseless_battle_tag, region, season, race, ladder_data, team)
+
+    print("processed ladder {}".format(ladder_id))
 
 
 def for_each_member(member_key: str):
@@ -78,12 +82,14 @@ def for_each_member(member_key: str):
         if not regions_query_result.pyres:
             return
 
-        seasons = ["current", "previous"]
-        season_games_played = dict(zip(seasons, [0] * len(seasons)))
         highest_league_per_race = {"Zerg": 0, "Protoss": 0, "Terran": 0, "Random": 0}
         current_highest_league = None
 
+        most_recent_season_id = -1
+        season_games_played = {-1: 0}  # no season games played if you haven't played in any seasons
         for region in regions_query_result.val():
+            current_season_id = sc2gamedata.get_current_season_data(ACCESS_TOKEN, region)["id"]
+            most_recent_season_id = max(most_recent_season_id, current_season_id)
             seasons_query_result = db.child("members").child(member_key).child("regions").child(region).shallow().get()
 
             if seasons_query_result.pyres:
@@ -95,9 +101,13 @@ def for_each_member(member_key: str):
                         for race in race_stats.keys():
                             race_league = race_stats[race]["league_id"]
                             highest_league_per_race[race] = max(highest_league_per_race[race], race_league)
-                            season_games_played[season] += race_stats[race]["games_played"]
 
-                            if season == "current" and (not current_highest_league or current_highest_league < race_league):
+                            season_id = int(season)
+                            if season_id not in season_games_played:
+                                season_games_played[season_id] = 0
+                            season_games_played[season_id] += race_stats[race]["games_played"]
+
+                            if season == current_season_id and (not current_highest_league or current_highest_league < race_league):
                                 current_highest_league = race_league
 
         highest_ranked_races = [
@@ -109,8 +119,8 @@ def for_each_member(member_key: str):
             "protoss_player": "Protoss" in highest_ranked_races,
             "terran_player": "Terran" in highest_ranked_races,
             "random_player": "Random" in highest_ranked_races,
-            "current_season_games_played": season_games_played["current"],
-            "previous_season_games_played": season_games_played["previous"],
+            "current_season_games_played": season_games_played.get(most_recent_season_id, 0),
+            "previous_season_games_played": season_games_played.get(most_recent_season_id - 1, 0),
             "last_updated": time.time()
         }
 
@@ -122,28 +132,42 @@ def for_each_member(member_key: str):
         for_each_member(member_key)
 
 
+def get_member_caseless_battle_tags(db: pyrebase.pyrebase.Database) -> set:
+    caseless_battle_tags = set()
+
+    result = db.child("members").order_by_child("caseless_battle_tag").get()
+    if result.pyres:
+        for registered_member_data in result.val().values():
+            caseless_battle_tags.add(registered_member_data["caseless_battle_tag"])
+
+    return caseless_battle_tags
+
+
 def main():
+
     with multiprocessing.Pool(POOL_SIZE) as pool:
+        db = open_db_connection()
+        member_caseless_battle_tags = get_member_caseless_battle_tags(db)
 
         for region in REGIONS:
+            print("fetching data for region {}".format(region))
+
             current_season_id = sc2gamedata.get_current_season_data(ACCESS_TOKEN, region)["id"]
-            previous_season_id = current_season_id - 1
+            leagues = [sc2gamedata.get_league_data(ACCESS_TOKEN, current_season_id, league_id, region)
+                       for league_id in LEAGUE_IDS]
+            tiers = itertools.chain(itertools.chain.from_iterable(league["tier"] for league in leagues))
+            divisions = itertools.chain(itertools.chain.from_iterable(
+                tier["division"] for tier in tiers if "division" in tier))
 
-            seasons = {current_season_id: "current", previous_season_id: "previous"}
+            map_func = functools.partial(for_each_division, region, current_season_id, member_caseless_battle_tags)
+            pool.map(map_func, divisions)
 
-            for season_id in seasons.keys():
-                leagues = [sc2gamedata.get_league_data(ACCESS_TOKEN, season_id, league_id, region)
-                           for league_id in LEAGUE_IDS]
-                tiers = itertools.chain(itertools.chain.from_iterable(league["tier"] for league in leagues))
-                divisions = itertools.chain(itertools.chain.from_iterable(
-                    tier["division"] for tier in tiers if "division" in tier))
+        print("data fetch complete")
 
-                map_func = functools.partial(for_each_division, region, seasons[season_id])
-                pool.map(map_func, divisions)
-
-        db = open_db_connection()
         member_keys = db.child("members").shallow().get().val()
         pool.map(for_each_member, member_keys)
+
+    print("update complete.")
 
 
 if __name__ == "__main__":
