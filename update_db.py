@@ -119,8 +119,8 @@ def for_each_member(member_key: str):
             "protoss_player": "Protoss" in highest_ranked_races,
             "terran_player": "Terran" in highest_ranked_races,
             "random_player": "Random" in highest_ranked_races,
-            "current_season_games_played": season_games_played.get(most_recent_season_id, 0),
-            "previous_season_games_played": season_games_played.get(most_recent_season_id - 1, 0),
+            "current_season_games_played": season_games_played.get(most_recent_season_id),
+            "previous_season_games_played": season_games_played.get(most_recent_season_id - 1),
             "last_updated": time.time()
         }
 
