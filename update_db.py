@@ -93,7 +93,9 @@ def for_each_member(member_key: str):
             seasons_query_result = db.child("members").child(member_key).child("regions").child(region).shallow().get()
 
             if seasons_query_result.pyres:
-                for season in seasons_query_result.val():
+                two_most_recent_seasons = list(
+                    sorted(seasons_query_result.val(), key=lambda x: int(x), reverse=True))[:2]
+                for season in two_most_recent_seasons:
                     race_stats_query_result = db.child("members").child(member_key).child("regions").child(region).child(season).get()
 
                     if race_stats_query_result.pyres:
