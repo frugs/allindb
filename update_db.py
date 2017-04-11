@@ -9,7 +9,8 @@ import sc2gamedata
 import pyrebase
 
 
-ACCESS_TOKEN = os.getenv("BATTLE_NET_ACCESS_TOKEN", "")
+CLIENT_ID = os.getenv("BATTLE_NET_CLIENT_ID", "")
+CLIENT_SECRET = os.getenv("BATTLE_NET_CLIENT_SECRET", "")
 FIREBASE_CONFIG_FILE = os.getenv("FIREBASE_CONFIG_FILE", "firebase.cfg")
 POOL_SIZE = int(os.getenv("POOL_SIZE", "8"))
 LEAGUE_IDS = range(7)
@@ -52,11 +53,11 @@ def update_matching_discord_member_ladder_stats(
         update_matching_discord_member_ladder_stats(db, caseless_battle_tag, region, season, race, ladder_data, team_data)
 
 
-def for_each_division(region: str, season: str, member_caseless_battle_tags: set, division_data: dict):
+def for_each_division(access_token: str, region: str, season: str, member_caseless_battle_tags: set, division_data: dict):
     db = open_db_connection()
 
     ladder_id = division_data["ladder_id"]
-    ladder_data = sc2gamedata.get_ladder_data(ACCESS_TOKEN, ladder_id, region)
+    ladder_data = sc2gamedata.get_ladder_data(access_token, ladder_id, region)
     teams = ladder_data["team"]
 
     for team in teams:
@@ -74,7 +75,7 @@ def for_each_division(region: str, season: str, member_caseless_battle_tags: set
     print("processed ladder {}".format(ladder_id))
 
 
-def for_each_member(member_key: str):
+def for_each_member(access_tokens_per_region: dict, member_key: str):
     try:
         db = open_db_connection()
         regions_query_result = db.child("members").child(member_key).child("regions").shallow().get()
@@ -88,7 +89,9 @@ def for_each_member(member_key: str):
         most_recent_season_id = -1
         season_games_played = {-1: 0}  # no season games played if you haven't played in any seasons
         for region in regions_query_result.val():
-            current_season_id = sc2gamedata.get_current_season_data(ACCESS_TOKEN, region)["id"]
+            access_token = access_tokens_per_region[region]
+
+            current_season_id = sc2gamedata.get_current_season_data(access_token, region)["id"]
             most_recent_season_id = max(most_recent_season_id, current_season_id)
             seasons_query_result = db.child("members").child(member_key).child("regions").child(region).shallow().get()
 
@@ -131,7 +134,7 @@ def for_each_member(member_key: str):
 
         db.child("members").child(member_key).update(data)
     except requests.exceptions.HTTPError:
-        for_each_member(member_key)
+        for_each_member(access_tokens_per_region, member_key)
 
 
 def get_member_caseless_battle_tags(db: pyrebase.pyrebase.Database) -> set:
@@ -152,22 +155,25 @@ def main():
         member_caseless_battle_tags = get_member_caseless_battle_tags(db)
 
         for region in REGIONS:
+            access_token, _ = sc2gamedata.get_access_token(CLIENT_ID, CLIENT_SECRET, region)
             print("fetching data for region {}".format(region))
 
-            current_season_id = sc2gamedata.get_current_season_data(ACCESS_TOKEN, region)["id"]
-            leagues = [sc2gamedata.get_league_data(ACCESS_TOKEN, current_season_id, league_id, region)
+            current_season_id = sc2gamedata.get_current_season_data(access_token, region)["id"]
+            leagues = [sc2gamedata.get_league_data(access_token, current_season_id, league_id, region)
                        for league_id in LEAGUE_IDS]
             tiers = itertools.chain(itertools.chain.from_iterable(league["tier"] for league in leagues))
             divisions = itertools.chain(itertools.chain.from_iterable(
                 tier["division"] for tier in tiers if "division" in tier))
 
-            map_func = functools.partial(for_each_division, region, current_season_id, member_caseless_battle_tags)
+            map_func = functools.partial(for_each_division, access_token, region, current_season_id, member_caseless_battle_tags)
             pool.map(map_func, divisions)
 
         print("data fetch complete")
 
+        access_tokens_per_region = dict((region, sc2gamedata.get_access_token(CLIENT_ID, CLIENT_SECRET, region)[0]) for region in REGIONS)
+
         member_keys = db.child("members").shallow().get().val()
-        pool.map(for_each_member, member_keys)
+        pool.map(functools.partial(for_each_member, access_tokens_per_region), member_keys)
 
     print("update complete.")
 
