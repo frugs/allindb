@@ -112,7 +112,7 @@ def for_each_member(access_tokens_per_region: dict, member_key: str):
                                 season_games_played[season_id] = 0
                             season_games_played[season_id] += race_stats[race]["games_played"]
 
-                            if season == current_season_id and (not current_highest_league or current_highest_league < race_league):
+                            if season_id == current_season_id and (not current_highest_league or current_highest_league < race_league):
                                 current_highest_league = race_league
 
         highest_ranked_races = [
@@ -170,7 +170,7 @@ def main():
 
         print("data fetch complete")
 
-        access_tokens_per_region = dict((region, sc2gamedata.get_access_token(CLIENT_ID, CLIENT_SECRET, region)[0]) for region in REGIONS)
+        access_tokens_per_region = dict((region, sc2gamedata.get_access_token(CLIENT_ID, CLIENT_SECRET, region)) for region in REGIONS)
 
         member_keys = db.child("members").shallow().get().val()
         pool.map(functools.partial(for_each_member, access_tokens_per_region), member_keys)
