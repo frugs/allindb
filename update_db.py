@@ -58,19 +58,19 @@ def for_each_division(access_token: str, region: str, season: str, member_casele
 
     ladder_id = division_data["ladder_id"]
     ladder_data = sc2gamedata.get_ladder_data(access_token, ladder_id, region)
-    teams = ladder_data["team"]
 
-    for team in teams:
-        member = team["member"][0]
-        if "character_link" not in member or "played_race_count" not in member:
-            continue
+    if "team" in ladder_data:
+        for team in ladder_data["team"]:
+            member = team["member"][0]
+            if "character_link" not in member or "played_race_count" not in member:
+                continue
 
-        caseless_battle_tag = member["character_link"]["battle_tag"].casefold()
-        race = next(iter(member["played_race_count"][0]["race"].values()))
+            caseless_battle_tag = member["character_link"]["battle_tag"].casefold()
+            race = next(iter(member["played_race_count"][0]["race"].values()))
 
-        if caseless_battle_tag in member_caseless_battle_tags:
-            update_matching_discord_member_ladder_stats(
-                db, caseless_battle_tag, region, season, race, ladder_data, team)
+            if caseless_battle_tag in member_caseless_battle_tags:
+                update_matching_discord_member_ladder_stats(
+                    db, caseless_battle_tag, region, season, race, ladder_data, team)
 
     print("processed ladder {}".format(ladder_id))
 
