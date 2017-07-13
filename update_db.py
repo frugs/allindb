@@ -59,9 +59,8 @@ def for_each_division(access_token: str, region: str, season: str, member_casele
     ladder_id = division_data["ladder_id"]
     ladder_data = sc2gamedata.get_ladder_data(access_token, ladder_id, region)
 
-    if "team" in ladder_data:
-        for team in ladder_data["team"]:
-            member = team["member"][0]
+    for team in ladder_data.get("team", []):
+        for member in team.get("member", []):
             if "character_link" not in member or "played_race_count" not in member:
                 continue
 
