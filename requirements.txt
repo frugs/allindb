@@ -1,2 +1,3 @@
 pyrebase
 sc2gamedata
+requests
