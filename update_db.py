@@ -40,7 +40,8 @@ def update_matching_discord_member_ladder_stats(
             "losses": team_data["losses"],
             "ties": team_data["ties"],
             "games_played": team_data["wins"] + team_data["losses"] + team_data["ties"],
-            "mmr": team_data["rating"]
+            "mmr": team_data["rating"],
+            "current_win_streak": team_data["current_win_streak"],
         }
         character_node = db.child("members").child(discord_id).child("characters").child(region).child(character)
         character_node.child("ladder_info").child(season).child(race).set(data)
