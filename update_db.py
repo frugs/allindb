@@ -1,7 +1,8 @@
+import base64
+import gzip
+import concurrent.futures
 import os
 import pickle
-import multiprocessing
-import functools
 import time
 import requests
 import sc2gamedata
@@ -11,14 +12,13 @@ import pyrebase
 CLIENT_ID = os.getenv("BATTLE_NET_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("BATTLE_NET_CLIENT_SECRET", "")
 API_KEY = os.getenv("BATTLE_NET_API_KEY", "")
-FIREBASE_CONFIG_FILE = os.getenv("FIREBASE_CONFIG_FILE", "firebase.cfg")
-POOL_SIZE = int(os.getenv("POOL_SIZE", "8"))
+FIREBASE_CONFIG = os.getenv("FIREBASE_CONFIG", "")
+POOL_SIZE = int(os.getenv("POOL_SIZE", "32"))
 REGIONS = ["us", "eu"]
 
 
 def open_db_connection() -> pyrebase.pyrebase.Database:
-    with open(FIREBASE_CONFIG_FILE, "rb") as file:
-        config = pickle.load(file)
+    config = pickle.loads(gzip.decompress(base64.b64decode(FIREBASE_CONFIG)))
 
     firebase = pyrebase.initialize_app(config)
     return firebase.database()
@@ -180,11 +180,14 @@ def for_each_member(member_key: str):
 
 def main():
 
-    with multiprocessing.Pool(POOL_SIZE) as pool:
+    with concurrent.futures.ThreadPoolExecutor(POOL_SIZE) as executor:
         db = open_db_connection()
 
         member_keys = list(db.child("members").shallow().get().val())
-        pool.map(functools.partial(for_each_member), member_keys)
+        if not member_keys:
+            member_keys = []
+
+        concurrent.futures.wait([executor.submit(for_each_member, member) for member in member_keys])
 
     print("update complete.")
 
