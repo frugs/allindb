@@ -42,6 +42,7 @@ def update_matching_discord_member_ladder_stats(
             "games_played": team_data["wins"] + team_data["losses"] + team_data["ties"],
             "mmr": team_data["rating"],
             "current_win_streak": team_data["current_win_streak"],
+            "longest_win_streak": team_data["longest_win_streak"],
             "last_played_time_stamp": team_data["last_played_time_stamp"],
         }
         character_node = db.child("members").child(discord_id).child("characters").child(region).child(character)
@@ -53,7 +54,7 @@ def update_matching_discord_member_ladder_stats(
 
 
 def for_each_member(member_key: str):
-    try:
+    try:    
         db = open_db_connection()
 
         characters_query_result = db.child("members").child(member_key).child("characters").get().val()
