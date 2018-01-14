@@ -18,7 +18,6 @@ FULL_MEMBER_ROLE_ID = os.getenv("FULL_MEMBER_ROLE_ID", "")
 API_KEY = os.getenv("BATTLE_NET_API_KEY", "")
 FIREBASE_CONFIG = os.getenv("FIREBASE_CONFIG", "")
 POOL_SIZE = int(os.getenv("POOL_SIZE", "32"))
-REGIONS = ["us", "eu"]
 
 
 def open_db_connection() -> pyrebase.pyrebase.Database:

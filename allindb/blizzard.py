@@ -5,7 +5,7 @@ import pyrebase
 import requests
 import sc2gamedata
 
-REGIONS = ["us", "eu"]
+REGIONS = ["us", "eu", "kr"]
 
 
 def get_access_token_and_current_season_per_region(client_id: str, client_secret: str) -> Tuple[dict, dict]:
