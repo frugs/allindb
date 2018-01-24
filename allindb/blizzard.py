@@ -1,15 +1,14 @@
+import functools
 import time
 from typing import Tuple
 
 import pyrebase
-import requests
 import sc2gamedata
 
 REGIONS = ["us", "eu", "kr"]
 
 
 def get_access_token_and_current_season_per_region(client_id: str, client_secret: str) -> Tuple[dict, dict]:
-
     access_tokens_per_region = dict(
         (region, sc2gamedata.get_access_token(client_id, client_secret, region)[0])
         for region
@@ -32,24 +31,19 @@ def update_matching_discord_member_ladder_stats(
         race: str,
         ladder_data: dict,
         team_data: dict):
-    try:
-        data = {
-            "league_id": ladder_data["league"]["league_key"]["league_id"],
-            "wins": team_data["wins"],
-            "losses": team_data["losses"],
-            "ties": team_data["ties"],
-            "games_played": team_data["wins"] + team_data["losses"] + team_data["ties"],
-            "mmr": team_data["rating"],
-            "current_win_streak": team_data["current_win_streak"],
-            "longest_win_streak": team_data["longest_win_streak"],
-            "last_played_time_stamp": team_data["last_played_time_stamp"],
-        }
-        character_node = db.child("members").child(discord_id).child("characters").child(region).child(character)
-        character_node.child("ladder_info").child(season).child(race).set(data)
-
-    except requests.exceptions.HTTPError:
-        update_matching_discord_member_ladder_stats(
-            db, discord_id, region, character, season, race, ladder_data, team_data)
+    data = {
+        "league_id": ladder_data["league"]["league_key"]["league_id"],
+        "wins": team_data["wins"],
+        "losses": team_data["losses"],
+        "ties": team_data["ties"],
+        "games_played": team_data["wins"] + team_data["losses"] + team_data["ties"],
+        "mmr": team_data["rating"],
+        "current_win_streak": team_data["current_win_streak"],
+        "longest_win_streak": team_data["longest_win_streak"],
+        "last_played_time_stamp": team_data["last_played_time_stamp"],
+    }
+    character_node = db.child("members").child(discord_id).child("characters").child(region).child(character)
+    character_node.child("ladder_info").child(season).child(race).set(data)
 
 
 def update_characters_for_member(
@@ -69,8 +63,14 @@ def update_characters_for_member(
 
         region_characters = characters_query_result.get(region, {})
         for character, character_data in region_characters.items():
-            profile_ladder_data = sc2gamedata.get_profile_ladder_data(api_key, character, region)
+            profile_ladder_data = _ignore_failure(functools.partial(
+                sc2gamedata.get_profile_ladder_data, api_key, character, region),
+                {})
             current_season_data = profile_ladder_data.get("currentSeason", [])
+
+            if current_season_data:
+                characters_node = db.child("members").child(member_key).child("characters")
+                characters_node.child(region).child(character).child("ladder_info").child(current_season_id).remove()
 
             current_season_ladders = [
                 x.get("ladder", [])[0]
@@ -87,10 +87,11 @@ def update_characters_for_member(
             ]
 
             ladders = [
-                sc2gamedata.get_ladder_data(access_token, x, region)
+                _ignore_failure(functools.partial(sc2gamedata.get_ladder_data, access_token, x, region), None)
                 for x
                 in ladder_ids
             ]
+            ladders = list(filter(None, ladders))
 
             for ladder_data in ladders:
                 for team in ladder_data.get("team", {}):
@@ -118,17 +119,15 @@ def update_ladder_summary_for_member(
     highest_league_per_race = {"Zerg": 0, "Protoss": 0, "Terran": 0, "Random": 0}
     current_highest_league = None
 
-    most_recent_season_id = -1
     season_games_played = {-1: 0}  # no season games played if you haven't played in any seasons
 
-    for region in (x for x in characters_query_result if x in REGIONS):
+    current_season_id = max(current_season_id_per_region.values(), default=0)
 
-        current_season_id = current_season_id_per_region[region]
+    for region in (x for x in characters_query_result if x in REGIONS):
 
         region_characters = characters_query_result.get(region, {})
         for character, character_data in region_characters.items():
 
-            most_recent_season_id = max(most_recent_season_id, current_season_id)
             seasons = character_data.get("ladder_info", {})
 
             if seasons:
@@ -158,8 +157,8 @@ def update_ladder_summary_for_member(
         "protoss_player": "Protoss" in highest_ranked_races,
         "terran_player": "Terran" in highest_ranked_races,
         "random_player": "Random" in highest_ranked_races,
-        "current_season_games_played": season_games_played.get(most_recent_season_id),
-        "previous_season_games_played": season_games_played.get(most_recent_season_id - 1),
+        "current_season_games_played": season_games_played.get(current_season_id, 0),
+        "previous_season_games_played": season_games_played.get(current_season_id - 1, 0),
         "last_updated": time.time()
     }
 
@@ -167,3 +166,11 @@ def update_ladder_summary_for_member(
         data["current_league"] = current_highest_league
 
     db.child("members").child(member_key).update(data)
+
+
+def _ignore_failure(func, default):
+    # noinspection PyBroadException
+    try:
+        return func()
+    except Exception:
+        return default
