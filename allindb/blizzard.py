@@ -1,5 +1,6 @@
 import functools
 import time
+import urllib.parse
 from typing import Tuple
 
 import pyrebase
@@ -63,8 +64,10 @@ def update_characters_for_member(
 
         region_characters = characters_query_result.get(region, {})
         for character, character_data in region_characters.items():
+            munged_character = urllib.parse.quote(character.encode('utf8').decode('ISO-8859-1'))
+
             profile_ladder_data = _ignore_failure(functools.partial(
-                sc2gamedata.get_profile_ladder_data, api_key, character, region),
+                sc2gamedata.get_profile_ladder_data, api_key, munged_character, region),
                 {})
             current_season_data = profile_ladder_data.get("currentSeason", [])
 
