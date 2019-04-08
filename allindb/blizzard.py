@@ -3,7 +3,7 @@ import time
 import urllib.parse
 from typing import Tuple
 
-import pyrebase
+from firebase_admin.db import reference
 import sc2gamedata
 
 REGIONS = ["us", "eu", "kr"]
@@ -14,7 +14,7 @@ def get_access_token_and_current_season_per_region(client_id: str, client_secret
         (region, sc2gamedata.get_access_token(client_id, client_secret, region)[0])
         for region
         in REGIONS)
-
+    
     current_season_id_per_region = dict(
         (region, sc2gamedata.get_current_season_data(access_tokens_per_region[region], region)["id"])
         for region
@@ -24,7 +24,6 @@ def get_access_token_and_current_season_per_region(client_id: str, client_secret
 
 
 def update_matching_discord_member_ladder_stats(
-        db: pyrebase.pyrebase.Database,
         discord_id: str,
         region: str,
         character: str,
@@ -43,17 +42,16 @@ def update_matching_discord_member_ladder_stats(
         "longest_win_streak": team_data["longest_win_streak"],
         "last_played_time_stamp": team_data["last_played_time_stamp"],
     }
-    character_node = db.child("members").child(discord_id).child("characters").child(region).child(character)
+    character_node = reference().child("members").child(discord_id).child("characters").child(region).child(character)
     character_node.child("ladder_info").child(season).child(race).set(data)
 
 
 def update_characters_for_member(
-        db: pyrebase.pyrebase.Database,
         api_key: str,
         access_tokens_per_region: dict,
         current_season_id_per_region: dict,
         member_key: str):
-    characters_query_result = db.child("members").child(member_key).child("characters").get().val()
+    characters_query_result = reference().child("members").child(member_key).child("characters").get()
 
     if not characters_query_result:
         return
@@ -63,7 +61,7 @@ def update_characters_for_member(
         current_season_id = current_season_id_per_region[region]
 
         region_characters = characters_query_result.get(region, {})
-        for character, character_data in region_characters.items():
+        for character in region_characters.keys():
             munged_character = urllib.parse.quote(character.encode('utf8').decode('ISO-8859-1'))
 
             profile_ladder_data = _ignore_failure(functools.partial(
@@ -72,7 +70,7 @@ def update_characters_for_member(
             current_season_data = profile_ladder_data.get("currentSeason", [])
 
             if current_season_data:
-                characters_node = db.child("members").child(member_key).child("characters")
+                characters_node = reference().child("members").child(member_key).child("characters")
                 characters_node.child(region).child(character).child("ladder_info").child(current_season_id).remove()
 
             current_season_ladders = [
@@ -107,14 +105,13 @@ def update_characters_for_member(
                             race = next(iter(member["played_race_count"][0]["race"].values()))
 
                             update_matching_discord_member_ladder_stats(
-                                db, member_key, region, character, current_season_id, race, ladder_data, team)
+                                member_key, region, character, current_season_id, race, ladder_data, team)
 
 
 def update_ladder_summary_for_member(
-        db: pyrebase.pyrebase.Database,
         current_season_id_per_region: dict,
         member_key: str):
-    characters_query_result = db.child("members").child(member_key).child("characters").get().val()
+    characters_query_result = reference().child("members").child(member_key).child("characters").get()
 
     if not characters_query_result:
         return
@@ -129,7 +126,7 @@ def update_ladder_summary_for_member(
     for region in (x for x in characters_query_result if x in REGIONS):
 
         region_characters = characters_query_result.get(region, {})
-        for character, character_data in region_characters.items():
+        for character_data in region_characters.values():
 
             seasons = character_data.get("ladder_info", {})
 
@@ -168,7 +165,7 @@ def update_ladder_summary_for_member(
     if current_highest_league is not None:
         data["current_league"] = current_highest_league
 
-    db.child("members").child(member_key).update(data)
+    reference().child("members").child(member_key).update(data)
 
 
 def _ignore_failure(func, default):

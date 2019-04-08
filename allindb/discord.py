@@ -1,6 +1,6 @@
 import time
 
-import pyrebase
+from firebase_admin.db import reference
 import requests
 
 RETRIES = 5
@@ -27,7 +27,6 @@ def get_member_info(bot_token: str, guild_id: str, member_id: str) -> dict:
 
 
 def update_discord_info_for_member(
-        db: pyrebase.pyrebase.Database,
         bot_token: str,
         guild_id: str,
         full_member_role_id: str,
@@ -46,6 +45,6 @@ def update_discord_info_for_member(
         if discord_server_nick:
             data["discord_server_nick"] = discord_server_nick
 
-        db.child("members").child(member_key).update(data)
+        reference().child("members").child(member_key).update(data)
 
 
