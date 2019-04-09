@@ -43,7 +43,7 @@ def update_matching_discord_member_ladder_stats(
         "last_played_time_stamp": team_data["last_played_time_stamp"],
     }
     character_node = reference().child("members").child(discord_id).child("characters").child(region).child(character)
-    character_node.child("ladder_info").child(season).child(race).set(data)
+    character_node.child("ladder_info").child(str(season)).child(race).set(data)
 
 
 def update_characters_for_member(
@@ -63,15 +63,16 @@ def update_characters_for_member(
         region_characters = characters_query_result.get(region, {})
         for character in region_characters.keys():
             munged_character = urllib.parse.quote(character.encode('utf8').decode('ISO-8859-1'))
+            profile_id, profile_realm, _ = munged_character.split("-")
 
             profile_ladder_data = _ignore_failure(functools.partial(
-                sc2gamedata.get_profile_ladder_data, api_key, munged_character, region),
+                sc2gamedata.get_legacy_profile_ladder_data, access_token, profile_realm, profile_id, region),
                 {})
             current_season_data = profile_ladder_data.get("currentSeason", [])
 
             if current_season_data:
                 characters_node = reference().child("members").child(member_key).child("characters")
-                characters_node.child(region).child(character).child("ladder_info").child(current_season_id).remove()
+                characters_node.child(region).child(character).child("ladder_info").child(str(current_season_id)).delete()
 
             current_season_ladders = [
                 x.get("ladder", [])[0]
