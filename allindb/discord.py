@@ -44,7 +44,11 @@ def update_discord_info_for_member(
 
         if discord_server_nick:
             data["discord_server_nick"] = discord_server_nick
+    else:
+        data = {
+            "is_full_member": False
+        }
 
-        reference().child("members").child(member_key).update(data)
+    reference().child("members").child(member_key).update(data)
 
 
