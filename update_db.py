@@ -1,4 +1,6 @@
 import concurrent.futures
+import itertools
+import functools
 import json
 import os
 import random
@@ -18,6 +20,7 @@ FULL_MEMBER_ROLE_ID = os.getenv("FULL_MEMBER_ROLE_ID", "")
 API_KEY = os.getenv("BATTLE_NET_API_KEY", "")
 FIREBASE_CONFIG = json.loads(os.getenv("FIREBASE_CONFIG", {}))
 POOL_SIZE = int(os.getenv("POOL_SIZE", "32"))
+LEAGUE_IDS = range(7)
 
 firebase_admin.initialize_app(
     credential=firebase_admin.credentials.Certificate(FIREBASE_CONFIG.get("serviceAccount", {})),
@@ -25,12 +28,16 @@ firebase_admin.initialize_app(
 )
 
 
-def for_each_member(member_key: str):
-    access_tokens_per_region, current_season_id_per_region = \
-        allindb.blizzard.get_access_token_and_current_season_per_region(CLIENT_ID, CLIENT_SECRET)
-    
+def _flatten(l) -> list:
+    return list(itertools.chain.from_iterable(l))
+
+
+def for_each_member(
+    access_tokens_per_region: dict, current_season_id_per_region: dict, all_us_mmrs: list,
+    member_key: str
+):
     allindb.blizzard.update_characters_for_member(
-        API_KEY, access_tokens_per_region, current_season_id_per_region, member_key
+        API_KEY, access_tokens_per_region, current_season_id_per_region, all_us_mmrs, member_key
     )
     print("updated characters for member with id " + member_key)
 
@@ -44,16 +51,36 @@ def for_each_member(member_key: str):
 
 
 def main():
+    access_tokens_per_region, current_season_id_per_region = allindb.blizzard.get_access_token_and_current_season_per_region(
+        CLIENT_ID, CLIENT_SECRET
+    )
 
     with concurrent.futures.ThreadPoolExecutor(POOL_SIZE) as executor:
+        all_us_mmrs = _flatten(
+            executor.map(
+                functools.partial(
+                    allindb.blizzard.fetch_mmrs_for_each_league, access_tokens_per_region["us"],
+                    current_season_id_per_region["us"]
+                ), LEAGUE_IDS
+            )
+        )
+        all_us_mmrs.sort()
+        print("Fetched US region MMRs.")
+
         member_keys = list(reference().child("members").get(shallow=True))
         if not member_keys:
             member_keys = []
         else:
             random.shuffle(member_keys)
+        print("Fetched members.")
 
         concurrent.futures.wait(
-            [executor.submit(for_each_member, member) for member in member_keys]
+            [
+                executor.submit(
+                    for_each_member, access_tokens_per_region, current_season_id_per_region,
+                    all_us_mmrs, member
+                ) for member in member_keys
+            ]
         )
 
     print("update complete.")
