@@ -38,11 +38,7 @@ def for_each_discord_member(
     member_key: str
 ):
     allindb.blizzard.update_characters_for_member(
-<<<<<<< Updated upstream
-        API_KEY, access_tokens_per_region, current_season_id_per_region, all_us_mmrs, member_key
-=======
         access_tokens_per_region, current_season_id_per_region, mmrs_per_region, member_key
->>>>>>> Stashed changes
     )
     print("updated characters for member with id " + member_key)
 
