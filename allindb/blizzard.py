@@ -15,26 +15,45 @@ def _flatten(l) -> list:
     return list(itertools.chain.from_iterable(l))
 
 
-def fetch_mmrs_for_division(access_token: str, ladder_id: int) -> list:
+def fetch_mmrs_and_clan_members_for_division(
+    access_token: str, ladder_id: int, clan_ids: list, league_id: int
+) -> (list, list):
     ladder_data = sc2gamedata.get_ladder_data(access_token, ladder_id)
-    return [team.get("rating") for team in ladder_data.get("team", []) if team.get("rating")]
+    mmrs = [team.get("rating") for team in ladder_data.get("team", []) if team.get("rating")]
+
+    clan_members = [
+        {
+            **team, "league_id": league_id
+        } for team in ladder_data.get("team", []) if team.get("member", [])
+        and team["member"][0].get("clan_link", {}).get("id", 0) in clan_ids
+    ]
+
+    return mmrs, clan_members
 
 
-def fetch_mmrs_for_each_league(access_token: str, current_season_id: int, league_id: int) -> list:
+def fetch_mmrs_and_clan_members_for_each_league(
+    access_tokens_per_region: dict, current_season_id_per_region: dict, clan_ids_per_region: dict,
+    league_id: int
+) -> (dict, dict):
+    access_token = access_tokens_per_region["us"]
+    current_season_id = current_season_id_per_region["us"]
+    clan_ids = clan_ids_per_region.get("us", [])
     league_data = sc2gamedata.get_league_data(access_token, current_season_id, league_id)
     tiers = league_data.get("tier", [])
     divisions = [tier.get("division", []) for tier in tiers]
     flattened_divisions = _flatten(divisions)
-    return _flatten(
-        [
-            fetch_mmrs_for_division(access_token, division["ladder_id"])
-            for division in flattened_divisions if division.get("ladder_id")
-        ]
+    mmrs, clan_members = zip(
+        *(
+            fetch_mmrs_and_clan_members_for_division(
+                access_token, division["ladder_id"], clan_ids, league_id
+            ) for division in flattened_divisions if division.get("ladder_id")
+        )
     )
+    return {"us": _flatten(mmrs)}, {"us": _flatten(clan_members)}
 
 
 def calculate_percentile(mmr: int, mmrs: list) -> float:
-    return 100.0 * (1 - bisect.bisect(mmrs, mmr) / len(mmrs))
+    return 100.0 * (1 - bisect.bisect(mmrs, mmr) / len(mmrs)) if mmrs else 100.0
 
 
 def get_access_token_and_current_season_per_region(client_id: str,
@@ -56,7 +75,7 @@ def get_access_token_and_current_season_per_region(client_id: str,
 
 def update_matching_discord_member_ladder_stats(
     discord_id: str, region: str, character: str, season: str, race: str, ladder_data: dict,
-    team_data: dict, all_us_mmrs: list
+    team_data: dict, mmrs: list
 ):
     data = {
         "league_id": ladder_data["league"]["league_key"]["league_id"],
@@ -68,7 +87,7 @@ def update_matching_discord_member_ladder_stats(
         "current_win_streak": team_data["current_win_streak"],
         "longest_win_streak": team_data["longest_win_streak"],
         "last_played_time_stamp": team_data["last_played_time_stamp"],
-        "percentile": calculate_percentile(team_data["rating"], all_us_mmrs) if region == "us" else 100.0
+        "percentile": calculate_percentile(team_data["rating"], mmrs)
     }
     character_node = reference(
     ).child("members").child(discord_id).child("characters").child(region).child(character)
@@ -76,8 +95,8 @@ def update_matching_discord_member_ladder_stats(
 
 
 def update_characters_for_member(
-    api_key: str, access_tokens_per_region: dict, current_season_id_per_region: dict,
-    all_us_mmrs: list, member_key: str
+    access_tokens_per_region: dict, current_season_id_per_region: dict, mmrs_per_region: dict,
+    member_key: str
 ):
     characters_query_result = reference().child("members").child(member_key).child("characters"
                                                                                    ).get()
@@ -88,6 +107,7 @@ def update_characters_for_member(
     for region in REGIONS:
         access_token = access_tokens_per_region[region]
         current_season_id = current_season_id_per_region[region]
+        mmrs = mmrs_per_region.get(region, [])
 
         region_characters = characters_query_result.get(region, {})
         for character in region_characters.keys():
@@ -136,7 +156,7 @@ def update_characters_for_member(
 
                             update_matching_discord_member_ladder_stats(
                                 member_key, region, character, current_season_id, race, ladder_data,
-                                team, all_us_mmrs
+                                team, mmrs
                             )
 
 
@@ -201,6 +221,52 @@ def update_ladder_summary_for_member(current_season_id_per_region: dict, member_
         data["current_league"] = current_highest_league
 
     reference().child("members").child(member_key).update(data)
+
+
+def update_unregistered_member_ladder_summary_for_member(
+    region: str, current_season_id: int, mmrs: list, clan_member: dict
+):
+    if not clan_member.get("member"):
+        return
+
+    member_data = clan_member["member"][0]
+    battle_tag = member_data.get("character_link", {}).get("battle_tag", "")
+    caseless_battle_tag = battle_tag.casefold()
+
+    registered_clan_member = reference("members").order_by_child("caseless_battle_tag").equal_to(
+        urllib.parse.quote(caseless_battle_tag)
+    ).get()
+    if registered_clan_member:
+        return
+
+    character_key = member_data.get("legacy_link", {}).get("path", "")[9:].replace("/", "-")
+
+    member_data = clan_member["member"][0]
+    played_race_count_data = next(iter(member_data.get("played_race_count", [])), {})
+    race = str(next(iter(played_race_count_data.get("race", {}).values()), ""))
+    if not race:
+        return
+
+    mmr = clan_member.get("rating", 0)
+    wins = clan_member.get("wins", 0)
+    losses = clan_member.get("losses", 0)
+    ties = clan_member.get("ties", 0)
+    ladder_summary = {
+        "current_win_streak": clan_member.get("current_win_streak", 0),
+        "games_played": clan_member.get(wins + losses + ties, 0),
+        "last_played_time_stamp": clan_member.get("last_played_time_stamp", 0),
+        "league_id": clan_member.get("league_id", 0),
+        "longest_win_streak": clan_member.get("longest_win_streak", 0),
+        "losses": losses,
+        "mmr": mmr,
+        "percentile": calculate_percentile(mmr, mmrs),
+        "ties": ties,
+        "wins": wins,
+    }
+
+    character_ref = reference().child("unregistered_members").child(region).child(character_key)
+    character_ref.update({"battle_tag": battle_tag, "caseless_battle_tag": caseless_battle_tag})
+    character_ref.child("ladder_info").child(str(current_season_id)).child(race).set(ladder_summary)
 
 
 def _ignore_failure(func, default):
