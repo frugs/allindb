@@ -98,10 +98,11 @@ def update_characters_for_member(
     access_tokens_per_region: dict, current_season_id_per_region: dict, mmrs_per_region: dict,
     member_key: str
 ):
-    characters_query_result = reference().child("members").child(member_key).child("characters"
-                                                                                   ).get()
+    member_ref = reference().child("members").child(member_key)
+    characters_query_result = member_ref.child("characters").get()
+    battle_tag = member_ref.child("battle_tag").get()
 
-    if not characters_query_result:
+    if not characters_query_result or not battle_tag:
         return
 
     for region in REGIONS:
@@ -146,18 +147,24 @@ def update_characters_for_member(
 
             for ladder_data in ladders:
                 for team in ladder_data.get("team", {}):
-                    for member in team.get("member", {}):
-                        if "played_race_count" not in member or "legacy_link" not in member:
-                            continue
+                    member_data = next(iter(team.get("member", [])), {})
+                    if not member_data.get("played_race_count"):
+                        continue
 
-                        legacy_link = member["legacy_link"]
-                        if character == legacy_link.get("path", "")[9:].replace("/", "-"):
-                            race = next(iter(member["played_race_count"][0]["race"].values()))
+                    def create_character_key_from_path(legacy_link_path: str):
+                        return legacy_link_path[9:].replace("/", "-") if legacy_link_path else ""
 
-                            update_matching_discord_member_ladder_stats(
-                                member_key, region, character, current_season_id, race, ladder_data,
-                                team, mmrs
-                            )
+                    legacy_link_path = member_data.get("legacy_link", {}).get("path", "")
+                    ladder_character_key = create_character_key_from_path(legacy_link_path)
+                    ladder_battle_tag = member_data.get("character_link", {}).get("battle_tag", "")
+
+                    if character == ladder_character_key or battle_tag == ladder_battle_tag:
+                        race = next(iter(member_data["played_race_count"][0]["race"].values()), "")
+
+                        update_matching_discord_member_ladder_stats(
+                            member_key, region, character, current_season_id, race, ladder_data,
+                            team, mmrs
+                        )
 
 
 def update_ladder_summary_for_member(current_season_id_per_region: dict, member_key: str):
