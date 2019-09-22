@@ -10,19 +10,27 @@ def get_member_info(bot_token: str, guild_id: str, member_id: str) -> dict:
     url = "https://discordapp.com/api/guilds/{}/members/{}".format(guild_id, member_id)
 
     tries = 0
-    failure = False
-    while not failure and tries < RETRIES:
-        response = requests.get(url, headers={"Authorization": "Bot " + bot_token})
-        if response.status_code == 200:
-            return response.json()
+    while tries < RETRIES:
+        try:
+            response = requests.get(url, headers={"Authorization": "Bot " + bot_token})
+            if response.status_code == 200:
+                return response.json()
 
-        if response.status_code == 429:
-            body = response.json()
-            time.sleep(body.get("retry_after", 1000) * 0.001)
-            tries += 1
-        else:
-            failure = True
+            if response.status_code == 404:
+                print("Unknown member: " + member_id)
+                return {}
 
+            if response.status_code == 429:
+                body = response.json()
+                time.sleep(body.get("retry_after", 1000) * 0.001)
+        except Exception as e:
+            print(e)
+            pass
+
+        print("Failed to fetch member info for: " + member_id + ", retrying")
+        tries += 1
+
+    print("Failed to fetch member info for: " + member_id + ", skipping")
     return {}
 
 

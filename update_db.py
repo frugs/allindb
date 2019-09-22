@@ -11,6 +11,7 @@ from firebase_admin.db import reference
 
 import allindb.blizzard
 import allindb.discord
+import allindb.executor
 
 CLIENT_ID = os.getenv("BATTLE_NET_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("BATTLE_NET_CLIENT_SECRET", "")
@@ -22,6 +23,7 @@ FIREBASE_CONFIG = json.loads(os.getenv("FIREBASE_CONFIG", {}))
 POOL_SIZE = int(os.getenv("POOL_SIZE", "32"))
 LEAGUE_IDS = range(7)
 CLAN_IDS = [369458, 40715, 406747]
+THREADED = os.getenv("THREADED", "true").casefold() == "true".casefold()
 
 firebase_admin.initialize_app(
     credential=firebase_admin.credentials.Certificate(FIREBASE_CONFIG.get("serviceAccount", {})),
@@ -73,6 +75,10 @@ def main():
     clan_ids_per_region = {"us": CLAN_IDS}
 
     with concurrent.futures.ThreadPoolExecutor(POOL_SIZE) as executor:
+
+        if not THREADED:
+            executor = allindb.executor.CurrentThreadExecutor()
+
         mmrs_per_region_per_league, clan_members_per_region_per_league = zip(
             *executor.map(
                 functools.partial(
