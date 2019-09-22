@@ -46,11 +46,14 @@ def for_each_discord_member(
 
     allindb.blizzard.update_ladder_summary_for_member(current_season_id_per_region, member_key)
     print("Updated ladder summary for member with id " + member_key)
-
-    allindb.discord.update_discord_info_for_member(
-        DISCORD_BOT_TOKEN, GUILD_ID, FULL_MEMBER_ROLE_ID, member_key
-    )
-    print("Updated discord info for member with id " + member_key)
+    
+    
+def update_discord_info_for_members(discord_member_keys: list):
+    for member_key in discord_member_keys:
+        allindb.discord.update_discord_info_for_member(
+            DISCORD_BOT_TOKEN, GUILD_ID, FULL_MEMBER_ROLE_ID, member_key
+        )
+        print("Updated discord info for member with id " + member_key)
 
 
 def update_unregistered_clan_members(
@@ -119,6 +122,8 @@ def main():
                 ) for member in discord_member_keys
             ]
         )
+
+        update_discord_info_for_members(discord_member_keys)
 
         print("Updated registered members.")
 
