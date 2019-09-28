@@ -69,6 +69,7 @@ def update_unregistered_clan_members(
                 ) for clan_member in clan_members_per_region[region]
             ]
         )
+        allindb.blizzard.purge_non_member_unregistered_members(region, clan_members_per_region[region])
 
 
 def main():

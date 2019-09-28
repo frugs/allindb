@@ -230,6 +230,14 @@ def update_ladder_summary_for_member(current_season_id_per_region: dict, member_
     reference().child("members").child(member_key).update(data)
 
 
+def _gen_character_key(clan_member: dict) -> str:
+    if not clan_member.get("member"):
+        return None
+
+    member_data = clan_member["member"][0]
+    return member_data.get("legacy_link", {}).get("path", "")[9:].replace("/", "-")
+
+
 def update_unregistered_member_ladder_summary_for_member(
     region: str, current_season_id: int, mmrs: list, clan_member: dict
 ):
@@ -246,7 +254,9 @@ def update_unregistered_member_ladder_summary_for_member(
     if registered_clan_member:
         return
 
-    character_key = member_data.get("legacy_link", {}).get("path", "")[9:].replace("/", "-")
+    character_key = _gen_character_key(clan_member)
+    if not character_key:
+        return
 
     member_data = clan_member["member"][0]
     played_race_count_data = next(iter(member_data.get("played_race_count", [])), {})
@@ -274,6 +284,19 @@ def update_unregistered_member_ladder_summary_for_member(
     character_ref = reference().child("unregistered_members").child(region).child(character_key)
     character_ref.update({"battle_tag": battle_tag, "caseless_battle_tag": caseless_battle_tag})
     character_ref.child("ladder_info").child(str(current_season_id)).child(race).set(ladder_summary)
+
+
+def purge_non_member_unregistered_members(
+    region: str, clan_members: list
+):
+    member_character_keys = set(map(_gen_character_key, clan_members))
+    db_characters = reference().child("unregistered_members").child(region).get(shallow=True)
+    db_characters = db_characters if db_characters else {}
+    db_character_keys = list(db_characters.keys())
+
+    for db_character_key in db_character_keys:
+        if db_character_key not in member_character_keys:
+            reference().child("unregistered_members").child(region).child(db_character_key).delete()
 
 
 def _ignore_failure(func, default):
