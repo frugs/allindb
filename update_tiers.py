@@ -54,7 +54,9 @@ def main():
     keyed_tier_boundaries = dict((x["tier"], x) for x in flattened_tier_boundaries)
 
     ref = firebase_admin.db.reference()
-    ref.child("tier_boundaries").child("us").child(str(season_id)).set(keyed_tier_boundaries)
+    ref.child("tier_boundaries").child("us").child(str(season_id)).set(
+        keyed_tier_boundaries
+    )
 
 
 if __name__ == "__main__":

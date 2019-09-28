@@ -26,8 +26,10 @@ CLAN_IDS = [369458, 40715, 406747]
 THREADED = os.getenv("THREADED", "true").casefold() == "true".casefold()
 
 firebase_admin.initialize_app(
-    credential=firebase_admin.credentials.Certificate(FIREBASE_CONFIG.get("serviceAccount", {})),
-    options=FIREBASE_CONFIG
+    credential=firebase_admin.credentials.Certificate(
+        FIREBASE_CONFIG.get("serviceAccount", {})
+    ),
+    options=FIREBASE_CONFIG,
 )
 
 
@@ -36,18 +38,25 @@ def _flatten(l) -> list:
 
 
 def for_each_discord_member(
-    access_tokens_per_region: dict, current_season_id_per_region: dict, mmrs_per_region: dict,
-    member_key: str
+    access_tokens_per_region: dict,
+    current_season_id_per_region: dict,
+    mmrs_per_region: dict,
+    member_key: str,
 ):
     allindb.blizzard.update_characters_for_member(
-        access_tokens_per_region, current_season_id_per_region, mmrs_per_region, member_key
+        access_tokens_per_region,
+        current_season_id_per_region,
+        mmrs_per_region,
+        member_key,
     )
     print("updated characters for member with id " + member_key)
 
-    allindb.blizzard.update_ladder_summary_for_member(current_season_id_per_region, member_key)
+    allindb.blizzard.update_ladder_summary_for_member(
+        current_season_id_per_region, member_key
+    )
     print("Updated ladder summary for member with id " + member_key)
-    
-    
+
+
 def update_discord_info_for_members(discord_member_keys: list):
     for member_key in discord_member_keys:
         allindb.discord.update_discord_info_for_member(
@@ -57,19 +66,27 @@ def update_discord_info_for_members(discord_member_keys: list):
 
 
 def update_unregistered_clan_members(
-    current_season_id_per_region: dict, mmrs_per_region: dict, clan_members_per_region: dict,
-    executor
+    current_season_id_per_region: dict,
+    mmrs_per_region: dict,
+    clan_members_per_region: dict,
+    executor,
 ):
     for region in clan_members_per_region.keys():
         concurrent.futures.wait(
             [
                 executor.submit(
-                    allindb.blizzard.update_unregistered_member_ladder_summary_for_member, region,
-                    current_season_id_per_region[region], mmrs_per_region[region], clan_member
-                ) for clan_member in clan_members_per_region[region]
+                    allindb.blizzard.update_unregistered_member_ladder_summary_for_member,
+                    region,
+                    current_season_id_per_region[region],
+                    mmrs_per_region[region],
+                    clan_member,
+                )
+                for clan_member in clan_members_per_region[region]
             ]
         )
-        allindb.blizzard.purge_non_member_unregistered_members(region, clan_members_per_region[region])
+        allindb.blizzard.purge_non_member_unregistered_members(
+            region, clan_members_per_region[region]
+        )
 
 
 def main():
@@ -87,28 +104,37 @@ def main():
             *executor.map(
                 functools.partial(
                     allindb.blizzard.fetch_mmrs_and_clan_members_for_each_league,
-                    access_tokens_per_region, current_season_id_per_region, clan_ids_per_region
-                ), LEAGUE_IDS
+                    access_tokens_per_region,
+                    current_season_id_per_region,
+                    clan_ids_per_region,
+                ),
+                LEAGUE_IDS,
             )
         )
 
         mmrs_per_region = functools.reduce(
-            lambda a, b: {region: a.get(region, []) + b.get(region, [])
-                          for region in a.keys()}, mmrs_per_region_per_league,
-            dict.fromkeys(access_tokens_per_region.keys(), [])
+            lambda a, b: {
+                region: a.get(region, []) + b.get(region, []) for region in a.keys()
+            },
+            mmrs_per_region_per_league,
+            dict.fromkeys(access_tokens_per_region.keys(), []),
         )
         for region in mmrs_per_region:
             mmrs_per_region[region].sort()
 
         clan_members_per_region = functools.reduce(
-            lambda a, b: {region: a.get(region, []) + b.get(region, [])
-                          for region in a.keys()}, clan_members_per_region_per_league,
-            dict.fromkeys(access_tokens_per_region.keys(), [])
+            lambda a, b: {
+                region: a.get(region, []) + b.get(region, []) for region in a.keys()
+            },
+            clan_members_per_region_per_league,
+            dict.fromkeys(access_tokens_per_region.keys(), []),
         )
 
         print("Fetched MMRs and clan members.")
 
-        discord_member_keys = list(reference().child("members").get(shallow=True).keys())
+        discord_member_keys = list(
+            reference().child("members").get(shallow=True).keys()
+        )
         if not discord_member_keys:
             discord_member_keys = []
         else:
@@ -118,9 +144,13 @@ def main():
         concurrent.futures.wait(
             [
                 executor.submit(
-                    for_each_discord_member, access_tokens_per_region, current_season_id_per_region,
-                    mmrs_per_region, member
-                ) for member in discord_member_keys
+                    for_each_discord_member,
+                    access_tokens_per_region,
+                    current_season_id_per_region,
+                    mmrs_per_region,
+                    member,
+                )
+                for member in discord_member_keys
             ]
         )
 
@@ -129,7 +159,10 @@ def main():
         print("Updated registered members.")
 
         update_unregistered_clan_members(
-            current_season_id_per_region, mmrs_per_region, clan_members_per_region, executor
+            current_season_id_per_region,
+            mmrs_per_region,
+            clan_members_per_region,
+            executor,
         )
 
         print("Updated unregistered members.")
