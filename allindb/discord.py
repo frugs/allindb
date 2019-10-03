@@ -35,11 +35,11 @@ def get_member_info(bot_token: str, guild_id: str, member_id: str) -> dict:
 
 
 def update_discord_info_for_member(
-    bot_token: str, guild_id: str, full_member_role_id: str, member_key: str
+        bot_token: str, guild_id: str, full_member_role_id: str, member_key: str
 ):
-
     member_info = get_member_info(bot_token, guild_id, member_key)
 
+    # TODO: Do something about old members who've left the server
     if member_info:
         discord_server_nick = member_info.get("nick", "")
 
@@ -52,5 +52,3 @@ def update_discord_info_for_member(
             data["discord_server_nick"] = discord_server_nick
 
         reference().child("members").child(member_key).update(data)
-    else:
-        reference().child("members").child(member_key).delete()
